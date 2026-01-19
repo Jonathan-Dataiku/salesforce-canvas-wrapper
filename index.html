@@ -68,6 +68,13 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .debug {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #999;
+            max-width: 500px;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +82,7 @@
         <div class="spinner"></div>
         <div class="message">Initializing...</div>
         <div class="submessage"></div>
+        <div class="debug" id="debug"></div>
     </div>
     
     <iframe id="app-frame"></iframe>
@@ -86,45 +94,41 @@
     let appUrl = null;
     let authCheckComplete = false;
 
-    // Get parameters from URL (passed by Salesforce)
+    function debug(msg) {
+        console.log(msg);
+        const debugEl = document.getElementById('debug');
+        debugEl.textContent += msg + '\n';
+    }
+
+    // Extract parameters from current URL
     function getUrlParams() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const signedRequest = urlParams.get('signed_request');
+        const params = new URLSearchParams(window.location.search);
+        const result = {};
         
-        if (signedRequest) {
-            try {
-                // Decode signed request (it's base64 encoded JSON)
-                const parts = signedRequest.split('.');
-                if (parts.length === 2) {
-                    const payload = atob(parts[1]);
-                    const data = JSON.parse(payload);
-                    return data.context.environment.parameters;
-                }
-            } catch (e) {
-                console.error('Error parsing signed request:', e);
-            }
+        // Get all parameters
+        for (const [key, value] of params.entries()) {
+            result[key] = value;
+            debug(`URL param: ${key} = ${value}`);
         }
-        return null;
+        
+        return result;
     }
 
     function initialize() {
-        console.log('Initializing Canvas app...');
+        debug('Initializing...');
         
-        const params = getUrlParams();
+        // Get URL parameters
+        const urlParams = getUrlParams();
         
-        if (!params) {
-            showError('Unable to load Salesforce context');
-            return;
-        }
+        // Try to extract accountId and opportunityId from various sources
+        accountId = urlParams.accountId || urlParams.account_id || null;
+        opportunityId = urlParams.opportunityId || urlParams.opportunity_id || null;
         
-        accountId = params.accountId;
-        opportunityId = params.opportunityId;
-        
-        console.log('Account ID:', accountId);
-        console.log('Opportunity ID:', opportunityId);
+        debug(`Account ID: ${accountId || 'NOT FOUND'}`);
+        debug(`Opportunity ID: ${opportunityId || 'NOT FOUND'}`);
         
         if (!accountId) {
-            showError('No Account ID provided');
+            showError('No Account ID found in URL parameters');
             return;
         }
         
@@ -135,7 +139,7 @@
             appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
         }
         
-        console.log('App URL:', appUrl);
+        debug(`App URL: ${appUrl}`);
         checkAuthAndLoad();
     }
 
@@ -147,7 +151,7 @@
         
         const timeoutId = setTimeout(() => {
             if (!authCheckComplete) {
-                console.log('Iframe load timeout - authentication needed');
+                debug('Iframe timeout - showing auth prompt');
                 showAuthPrompt();
             }
         }, 3000);
@@ -157,7 +161,7 @@
             try {
                 iframe.contentWindow.document;
             } catch (e) {
-                console.log('Iframe loaded successfully');
+                debug('Iframe loaded (cross-origin)');
                 authCheckComplete = true;
                 showApp();
                 return;
@@ -167,6 +171,7 @@
         
         iframe.onerror = function() {
             clearTimeout(timeoutId);
+            debug('Iframe error');
             showAuthPrompt();
         };
     }
@@ -175,7 +180,7 @@
         document.querySelector('.spinner').style.display = 'none';
         document.querySelector('.message').textContent = 'Authentication Required';
         document.querySelector('.submessage').innerHTML = 
-            'A popup window will open for you to sign in with Google.<br>After signing in, close the popup to continue.';
+            'Click below to sign in with Google';
         
         const button = document.createElement('button');
         button.id = 'google-signin';
@@ -190,6 +195,8 @@
         const button = document.getElementById('google-signin');
         if (button) button.disabled = true;
         
+        debug('Opening auth popup...');
+        
         const width = 600;
         const height = 700;
         const left = (screen.width - width) / 2;
@@ -202,13 +209,15 @@
         );
         
         if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+            debug('Popup blocked!');
             document.querySelector('.message').textContent = 'Popup Blocked';
             document.querySelector('.submessage').innerHTML = 
-                'Please allow popups for this site,<br>then click the button to try again.';
+                'Please allow popups, then click to try again.';
             if (button) button.disabled = false;
             return;
         }
         
+        debug('Popup opened');
         document.querySelector('.message').textContent = 'Sign in with Google';
         document.querySelector('.submessage').textContent = 
             'Complete sign-in in the popup, then close it.';
@@ -216,6 +225,7 @@
         const checkPopup = setInterval(() => {
             if (popup.closed) {
                 clearInterval(checkPopup);
+                debug('Popup closed');
                 loadApp();
             }
         }, 500);
@@ -240,14 +250,11 @@
         document.querySelector('.spinner').style.display = 'none';
         document.querySelector('.message').textContent = 'Error';
         document.querySelector('.submessage').textContent = message;
+        debug(`ERROR: ${message}`);
     }
 
-    // Start when page loads
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialize);
-    } else {
-        initialize();
-    }
+    // Start initialization
+    setTimeout(initialize, 100);
 })();
     </script>
 </body>
