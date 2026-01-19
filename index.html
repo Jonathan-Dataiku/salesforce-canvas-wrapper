@@ -68,13 +68,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .debug {
-            margin-top: 20px;
-            font-size: 12px;
-            color: #999;
-            max-width: 500px;
-            word-wrap: break-word;
-        }
     </style>
 </head>
 <body>
@@ -82,7 +75,6 @@
         <div class="spinner"></div>
         <div class="message">Initializing...</div>
         <div class="submessage"></div>
-        <div class="debug" id="debug"></div>
     </div>
     
     <iframe id="app-frame"></iframe>
@@ -92,43 +84,22 @@
     let accountId = null;
     let opportunityId = null;
     let appUrl = null;
-    let authCheckComplete = false;
-
-    function debug(msg) {
-        console.log(msg);
-        const debugEl = document.getElementById('debug');
-        debugEl.textContent += msg + '\n';
-    }
-
-    // Extract parameters from current URL
-    function getUrlParams() {
-        const params = new URLSearchParams(window.location.search);
-        const result = {};
-        
-        // Get all parameters
-        for (const [key, value] of params.entries()) {
-            result[key] = value;
-            debug(`URL param: ${key} = ${value}`);
-        }
-        
-        return result;
-    }
+    let checkAttempts = 0;
+    let maxCheckAttempts = 3;
 
     function initialize() {
-        debug('Initializing...');
+        console.log('Initializing...');
         
         // Get URL parameters
-        const urlParams = getUrlParams();
+        const params = new URLSearchParams(window.location.search);
+        accountId = params.get('accountId');
+        opportunityId = params.get('opportunityId');
         
-        // Try to extract accountId and opportunityId from various sources
-        accountId = urlParams.accountId || urlParams.account_id || null;
-        opportunityId = urlParams.opportunityId || urlParams.opportunity_id || null;
-        
-        debug(`Account ID: ${accountId || 'NOT FOUND'}`);
-        debug(`Opportunity ID: ${opportunityId || 'NOT FOUND'}`);
+        console.log('Account ID:', accountId);
+        console.log('Opportunity ID:', opportunityId);
         
         if (!accountId) {
-            showError('No Account ID found in URL parameters');
+            showError('No Account ID provided');
             return;
         }
         
@@ -139,41 +110,78 @@
             appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
         }
         
-        debug(`App URL: ${appUrl}`);
-        checkAuthAndLoad();
+        console.log('App URL:', appUrl);
+        checkAuthWithFetch();
     }
 
-    function checkAuthAndLoad() {
+    function checkAuthWithFetch() {
+        checkAttempts++;
+        document.querySelector('.message').textContent = 'Checking authentication...';
+        
+        console.log('Checking auth via fetch (attempt ' + checkAttempts + ')...');
+        
+        // Try to fetch the URL to see if we get redirected to auth
+        fetch(appUrl, {
+            method: 'HEAD',
+            credentials: 'include',
+            redirect: 'manual'
+        }).then(response => {
+            console.log('Fetch response status:', response.status);
+            console.log('Fetch response type:', response.type);
+            
+            // If we get an opaqueredirect (status 0), we're being redirected to Google auth
+            if (response.type === 'opaqueredirect' || response.status === 0) {
+                console.log('Redirect detected - authentication required');
+                showAuthPrompt();
+            } 
+            // If we get 200, we're authenticated
+            else if (response.status === 200) {
+                console.log('Authenticated - loading app');
+                loadApp();
+            }
+            // Any other status, try to load anyway
+            else {
+                console.log('Unexpected status, attempting to load app');
+                loadApp();
+            }
+        }).catch(error => {
+            console.log('Fetch error:', error);
+            // CORS or network error - try loading in iframe to see what happens
+            tryIframeLoad();
+        });
+    }
+
+    function tryIframeLoad() {
+        console.log('Trying iframe load to check auth...');
         document.querySelector('.message').textContent = 'Checking authentication...';
         
         const iframe = document.getElementById('app-frame');
         iframe.src = appUrl;
         
-        const timeoutId = setTimeout(() => {
-            if (!authCheckComplete) {
-                debug('Iframe timeout - showing auth prompt');
+        // Wait to see if iframe loads or redirects
+        setTimeout(() => {
+            try {
+                // Try to read iframe location - if we can't, it's cross-origin (redirected or loaded)
+                const iframeLocation = iframe.contentWindow.location.href;
+                console.log('Can read iframe location:', iframeLocation);
+                
+                // If we can read it and it's not our domain, something went wrong
+                if (!iframeLocation.includes('design.analytics.ondku.net')) {
+                    console.log('Iframe showing error page or redirect');
+                    showAuthPrompt();
+                } else {
+                    console.log('Iframe loaded successfully');
+                    showApp();
+                }
+            } catch (e) {
+                // Can't read location = cross-origin
+                // Could be the app loaded OR could be Google auth redirect
+                console.log('Iframe is cross-origin');
+                
+                // Since we can't tell, show auth prompt
                 showAuthPrompt();
             }
-        }, 3000);
-        
-        iframe.onload = function() {
-            clearTimeout(timeoutId);
-            try {
-                iframe.contentWindow.document;
-            } catch (e) {
-                debug('Iframe loaded (cross-origin)');
-                authCheckComplete = true;
-                showApp();
-                return;
-            }
-            showAuthPrompt();
-        };
-        
-        iframe.onerror = function() {
-            clearTimeout(timeoutId);
-            debug('Iframe error');
-            showAuthPrompt();
-        };
+        }, 2000);
     }
 
     function showAuthPrompt() {
@@ -188,6 +196,8 @@
         button.onclick = openAuthPopup;
         
         document.getElementById('auth-container').appendChild(button);
+        
+        // Auto-open popup after 1 second
         setTimeout(openAuthPopup, 1000);
     }
 
@@ -195,7 +205,7 @@
         const button = document.getElementById('google-signin');
         if (button) button.disabled = true;
         
-        debug('Opening auth popup...');
+        console.log('Opening auth popup...');
         
         const width = 600;
         const height = 700;
@@ -209,7 +219,7 @@
         );
         
         if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-            debug('Popup blocked!');
+            console.log('Popup blocked!');
             document.querySelector('.message').textContent = 'Popup Blocked';
             document.querySelector('.submessage').innerHTML = 
                 'Please allow popups, then click to try again.';
@@ -217,16 +227,21 @@
             return;
         }
         
-        debug('Popup opened');
+        console.log('Popup opened');
         document.querySelector('.message').textContent = 'Sign in with Google';
         document.querySelector('.submessage').textContent = 
             'Complete sign-in in the popup, then close it.';
         
         const checkPopup = setInterval(() => {
-            if (popup.closed) {
-                clearInterval(checkPopup);
-                debug('Popup closed');
-                loadApp();
+            try {
+                // Check if popup still exists and is closed
+                if (popup.closed) {
+                    clearInterval(checkPopup);
+                    console.log('Popup closed');
+                    loadApp();
+                }
+            } catch (e) {
+                // Popup may be cross-origin, keep checking
             }
         }, 500);
     }
@@ -234,6 +249,8 @@
     function loadApp() {
         document.querySelector('.message').textContent = 'Loading ValueRevCoach...';
         document.querySelector('.spinner').style.display = 'block';
+        const button = document.getElementById('google-signin');
+        if (button) button.style.display = 'none';
         
         const iframe = document.getElementById('app-frame');
         iframe.src = appUrl + '&t=' + Date.now();
@@ -250,7 +267,7 @@
         document.querySelector('.spinner').style.display = 'none';
         document.querySelector('.message').textContent = 'Error';
         document.querySelector('.submessage').textContent = message;
-        debug(`ERROR: ${message}`);
+        console.log('ERROR:', message);
     }
 
     // Start initialization
