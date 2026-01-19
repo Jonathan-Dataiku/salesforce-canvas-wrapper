@@ -79,180 +79,176 @@
     
     <iframe id="app-frame"></iframe>
 
-    <script src="https://login.salesforce.com/canvas/sdk/js/69.0/canvas-all.js"></script>
     <script>
-        let accountId = null;
-        let opportunityId = null;
-        let appUrl = null;
-        let authCheckComplete = false;
+(function() {
+    let accountId = null;
+    let opportunityId = null;
+    let appUrl = null;
+    let authCheckComplete = false;
 
-        // Wait for Salesforce Canvas SDK to load
-        function initializeCanvas() {
-            if (typeof Sfdc === 'undefined' || typeof Sfdc.canvas === 'undefined') {
-                console.log('Waiting for Salesforce Canvas SDK...');
-                setTimeout(initializeCanvas, 100);
-                return;
+    // Get parameters from URL (passed by Salesforce)
+    function getUrlParams() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const signedRequest = urlParams.get('signed_request');
+        
+        if (signedRequest) {
+            try {
+                // Decode signed request (it's base64 encoded JSON)
+                const parts = signedRequest.split('.');
+                if (parts.length === 2) {
+                    const payload = atob(parts[1]);
+                    const data = JSON.parse(payload);
+                    return data.context.environment.parameters;
+                }
+            } catch (e) {
+                console.error('Error parsing signed request:', e);
             }
-
-            console.log('Salesforce Canvas SDK loaded');
-
-            // Get parameters from Salesforce Canvas
-            Sfdc.canvas(function() {
-                try {
-                    const client = Sfdc.canvas.oauth.client();
-                    const signedRequest = JSON.parse(client.signedRequest);
-                    
-                    // Extract parameters from Canvas
-                    const params = signedRequest.context.environment.parameters;
-                    accountId = params.accountId;
-                    opportunityId = params.opportunityId;
-                    
-                    console.log('Account ID:', accountId);
-                    console.log('Opportunity ID:', opportunityId);
-                    
-                    if (!accountId) {
-                        showError('No Account ID provided');
-                        return;
-                    }
-                    
-                    // Build URL based on what parameters we have
-                    if (opportunityId) {
-                        appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}/opportunity/${opportunityId}/?removeSelectors=true`;
-                    } else {
-                        appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
-                    }
-                    
-                    console.log('App URL:', appUrl);
-                    
-                    // Try loading in iframe first
-                    checkAuthAndLoad();
-                    
-                } catch (error) {
-                    console.error('Canvas initialization error:', error);
-                    showError('Failed to initialize Canvas context');
-                }
-            });
         }
+        return null;
+    }
 
-        function checkAuthAndLoad() {
-            document.querySelector('.message').textContent = 'Checking authentication...';
-            document.querySelector('.submessage').textContent = '';
-            
-            const iframe = document.getElementById('app-frame');
-            iframe.src = appUrl;
-            
-            const timeoutId = setTimeout(() => {
-                if (!authCheckComplete) {
-                    console.log('Iframe load timeout - authentication likely needed');
-                    showAuthPrompt();
-                }
-            }, 3000);
-            
-            iframe.onload = function() {
-                clearTimeout(timeoutId);
-                
-                try {
-                    const iframeDoc = iframe.contentWindow.document;
-                } catch (e) {
-                    console.log('Iframe loaded successfully');
-                    authCheckComplete = true;
-                    showApp();
-                    return;
-                }
-                
-                showAuthPrompt();
-            };
-            
-            iframe.onerror = function() {
-                clearTimeout(timeoutId);
-                console.log('Iframe load error');
-                showAuthPrompt();
-            };
+    function initialize() {
+        console.log('Initializing Canvas app...');
+        
+        const params = getUrlParams();
+        
+        if (!params) {
+            showError('Unable to load Salesforce context');
+            return;
         }
-
-        function showAuthPrompt() {
-            document.querySelector('.spinner').style.display = 'none';
-            document.querySelector('.message').textContent = 'Authentication Required';
-            document.querySelector('.submessage').innerHTML = 
-                'A popup window will open for you to sign in with Google.<br>After signing in, close the popup to continue.';
-            
-            const button = document.createElement('button');
-            button.id = 'google-signin';
-            button.textContent = 'Sign in with Google';
-            button.onclick = openAuthPopup;
-            
-            document.getElementById('auth-container').appendChild(button);
-            
-            setTimeout(openAuthPopup, 1000);
+        
+        accountId = params.accountId;
+        opportunityId = params.opportunityId;
+        
+        console.log('Account ID:', accountId);
+        console.log('Opportunity ID:', opportunityId);
+        
+        if (!accountId) {
+            showError('No Account ID provided');
+            return;
         }
-
-        function openAuthPopup() {
-            const button = document.getElementById('google-signin');
-            if (button) button.disabled = true;
-            
-            console.log('Opening auth popup...');
-            
-            const width = 600;
-            const height = 700;
-            const left = (screen.width - width) / 2;
-            const top = (screen.height - height) / 2;
-            
-            const popup = window.open(
-                appUrl,
-                'valuerevcoach_auth',
-                `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-            );
-            
-            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                console.error('Popup blocked');
-                document.querySelector('.message').textContent = 'Popup Blocked';
-                document.querySelector('.submessage').innerHTML = 
-                    'Please allow popups for this site in your browser settings,<br>then click the button below to try again.';
-                if (button) button.disabled = false;
-                return;
-            }
-            
-            document.querySelector('.message').textContent = 'Sign in with Google';
-            document.querySelector('.submessage').textContent = 
-                'Complete the sign-in process in the popup window, then close it.';
-            
-            const checkPopup = setInterval(() => {
-                if (popup.closed) {
-                    clearInterval(checkPopup);
-                    console.log('Popup closed, loading app...');
-                    loadApp();
-                }
-            }, 500);
-        }
-
-        function loadApp() {
-            document.querySelector('.message').textContent = 'Loading ValueRevCoach...';
-            document.querySelector('.submessage').textContent = '';
-            document.querySelector('.spinner').style.display = 'block';
-            
-            const iframe = document.getElementById('app-frame');
-            iframe.src = appUrl + '&t=' + Date.now();
-            
-            setTimeout(showApp, 1500);
-        }
-
-        function showApp() {
-            document.getElementById('auth-container').style.display = 'none';
-            document.getElementById('app-frame').style.display = 'block';
-        }
-
-        function showError(message) {
-            document.querySelector('.spinner').style.display = 'none';
-            document.querySelector('.message').textContent = 'Error';
-            document.querySelector('.submessage').textContent = message;
-        }
-
-        // Start initialization when page loads
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeCanvas);
+        
+        // Build URL
+        if (opportunityId) {
+            appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}/opportunity/${opportunityId}/?removeSelectors=true`;
         } else {
-            initializeCanvas();
+            appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
         }
+        
+        console.log('App URL:', appUrl);
+        checkAuthAndLoad();
+    }
+
+    function checkAuthAndLoad() {
+        document.querySelector('.message').textContent = 'Checking authentication...';
+        
+        const iframe = document.getElementById('app-frame');
+        iframe.src = appUrl;
+        
+        const timeoutId = setTimeout(() => {
+            if (!authCheckComplete) {
+                console.log('Iframe load timeout - authentication needed');
+                showAuthPrompt();
+            }
+        }, 3000);
+        
+        iframe.onload = function() {
+            clearTimeout(timeoutId);
+            try {
+                iframe.contentWindow.document;
+            } catch (e) {
+                console.log('Iframe loaded successfully');
+                authCheckComplete = true;
+                showApp();
+                return;
+            }
+            showAuthPrompt();
+        };
+        
+        iframe.onerror = function() {
+            clearTimeout(timeoutId);
+            showAuthPrompt();
+        };
+    }
+
+    function showAuthPrompt() {
+        document.querySelector('.spinner').style.display = 'none';
+        document.querySelector('.message').textContent = 'Authentication Required';
+        document.querySelector('.submessage').innerHTML = 
+            'A popup window will open for you to sign in with Google.<br>After signing in, close the popup to continue.';
+        
+        const button = document.createElement('button');
+        button.id = 'google-signin';
+        button.textContent = 'Sign in with Google';
+        button.onclick = openAuthPopup;
+        
+        document.getElementById('auth-container').appendChild(button);
+        setTimeout(openAuthPopup, 1000);
+    }
+
+    function openAuthPopup() {
+        const button = document.getElementById('google-signin');
+        if (button) button.disabled = true;
+        
+        const width = 600;
+        const height = 700;
+        const left = (screen.width - width) / 2;
+        const top = (screen.height - height) / 2;
+        
+        const popup = window.open(
+            appUrl,
+            'valuerevcoach_auth',
+            `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+        );
+        
+        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+            document.querySelector('.message').textContent = 'Popup Blocked';
+            document.querySelector('.submessage').innerHTML = 
+                'Please allow popups for this site,<br>then click the button to try again.';
+            if (button) button.disabled = false;
+            return;
+        }
+        
+        document.querySelector('.message').textContent = 'Sign in with Google';
+        document.querySelector('.submessage').textContent = 
+            'Complete sign-in in the popup, then close it.';
+        
+        const checkPopup = setInterval(() => {
+            if (popup.closed) {
+                clearInterval(checkPopup);
+                loadApp();
+            }
+        }, 500);
+    }
+
+    function loadApp() {
+        document.querySelector('.message').textContent = 'Loading ValueRevCoach...';
+        document.querySelector('.spinner').style.display = 'block';
+        
+        const iframe = document.getElementById('app-frame');
+        iframe.src = appUrl + '&t=' + Date.now();
+        
+        setTimeout(showApp, 1500);
+    }
+
+    function showApp() {
+        document.getElementById('auth-container').style.display = 'none';
+        document.getElementById('app-frame').style.display = 'block';
+    }
+
+    function showError(message) {
+        document.querySelector('.spinner').style.display = 'none';
+        document.querySelector('.message').textContent = 'Error';
+        document.querySelector('.submessage').textContent = message;
+    }
+
+    // Start when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
+})();
     </script>
 </body>
 </html>
