@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ValueRevCoach</title>
-    <script src="https://login.salesforce.com/canvas/sdk/js/69.0/canvas-all.js"></script>
     <style>
         * {
             margin: 0;
@@ -80,50 +79,60 @@
     
     <iframe id="app-frame"></iframe>
 
+    <script src="https://login.salesforce.com/canvas/sdk/js/69.0/canvas-all.js"></script>
     <script>
         let accountId = null;
         let opportunityId = null;
         let appUrl = null;
         let authCheckComplete = false;
 
-        // Get parameters from Salesforce Canvas
-        Sfdc.canvas(function() {
-            try {
-                const client = Sfdc.canvas.oauth.client();
-                const signedRequest = JSON.parse(client.signedRequest);
-                
-                // Extract parameters from Canvas
-                const params = signedRequest.context.environment.parameters;
-                accountId = params.accountId;
-                opportunityId = params.opportunityId; // Will be undefined if not passed
-                
-                console.log('Account ID:', accountId);
-                console.log('Opportunity ID:', opportunityId);
-                
-                if (!accountId) {
-                    showError('No Account ID provided');
-                    return;
-                }
-                
-                // Build URL based on what parameters we have
-                if (opportunityId) {
-                    // Opportunity context - include both IDs
-                    appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}/opportunity/${opportunityId}/?removeSelectors=true`;
-                } else {
-                    // Account context only
-                    appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
-                }
-                
-                console.log('App URL:', appUrl);
-                
-                // Try loading in iframe first
-                checkAuthAndLoad();
-                
-            } catch (error) {
-                console.error('Canvas initialization error:', error);
-                showError('Failed to initialize Canvas context');
+        // Wait for Salesforce Canvas SDK to load
+        function initializeCanvas() {
+            if (typeof Sfdc === 'undefined' || typeof Sfdc.canvas === 'undefined') {
+                console.log('Waiting for Salesforce Canvas SDK...');
+                setTimeout(initializeCanvas, 100);
+                return;
             }
-        });
+
+            console.log('Salesforce Canvas SDK loaded');
+
+            // Get parameters from Salesforce Canvas
+            Sfdc.canvas(function() {
+                try {
+                    const client = Sfdc.canvas.oauth.client();
+                    const signedRequest = JSON.parse(client.signedRequest);
+                    
+                    // Extract parameters from Canvas
+                    const params = signedRequest.context.environment.parameters;
+                    accountId = params.accountId;
+                    opportunityId = params.opportunityId;
+                    
+                    console.log('Account ID:', accountId);
+                    console.log('Opportunity ID:', opportunityId);
+                    
+                    if (!accountId) {
+                        showError('No Account ID provided');
+                        return;
+                    }
+                    
+                    // Build URL based on what parameters we have
+                    if (opportunityId) {
+                        appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}/opportunity/${opportunityId}/?removeSelectors=true`;
+                    } else {
+                        appUrl = `https://design.analytics.ondku.net/webapps/VALUEREVCOACH/rJHdUtf/account/${accountId}?removeSelectors=true`;
+                    }
+                    
+                    console.log('App URL:', appUrl);
+                    
+                    // Try loading in iframe first
+                    checkAuthAndLoad();
+                    
+                } catch (error) {
+                    console.error('Canvas initialization error:', error);
+                    showError('Failed to initialize Canvas context');
+                }
+            });
+        }
 
         function checkAuthAndLoad() {
             document.querySelector('.message').textContent = 'Checking authentication...';
@@ -236,6 +245,13 @@
             document.querySelector('.spinner').style.display = 'none';
             document.querySelector('.message').textContent = 'Error';
             document.querySelector('.submessage').textContent = message;
+        }
+
+        // Start initialization when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeCanvas);
+        } else {
+            initializeCanvas();
         }
     </script>
 </body>
